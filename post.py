@@ -1,52 +1,101 @@
-import os, json, datetime, requests
+import os, json, datetime, requests, sys, pathlib
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHANNELS = os.environ["CHANNELS"]  # "@dating_batumi,@dating_tbilisi,@dating_georgia"
-START_DATE = os.environ.get("START_DATE", "2025-11-04")  # YYYY-MM-DD, день запуска
+# ENV из GitHub Secrets
+BOT_TOKEN = os.environ["BOT_TOKEN"]                # НЕ хардкодить!
+CHANNELS = os.environ["CHANNELS"]                  # "@datingTBS"
+START_DATE = os.environ.get("START_DATE", "2025-11-04")
 TZ_OFFSET_HOURS = int(os.environ.get("TZ_OFFSET_HOURS", "4"))  # Asia/Tbilisi = UTC+4
 
-with open("posts.json", "r", encoding="utf-8") as f:
-    data = json.load(f)
+print("[DBG] CWD:", os.getcwd())
+print("[DBG] Files:", [p.name for p in pathlib.Path(".").iterdir()])
+print("[DBG] CHANNELS present:", bool(CHANNELS))
+print("[DBG] START_DATE:", START_DATE)
 
-# Определяем индекс дня с момента START_DATE (чтобы каждый день брать следующий пост)
+def tg(method, payload):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
+    r = requests.post(url, json=payload, timeout=30)
+    try:
+        body = r.json()
+    except Exception:
+        body = {"raw": r.text}
+    print(f"[TG] {method} status={r.status_code} → {body}")
+    if not body or not body.get("ok"):
+        sys.exit(1)
+    return body
+
+# sanity check токена
+try:
+    me = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=15).json()
+    print("[TG] getMe:", me)
+except Exception as e:
+    print("[ERR] getMe exception:", repr(e))
+    sys.exit(1)
+
+# читаем посты
+try:
+    with open("posts.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        print("[ERR] posts.json not a dict")
+        sys.exit(1)
+    print("[DBG] posts.json keys:", list(data.keys()))
+except Exception as e:
+    print("[ERR] cannot read posts.json:", repr(e))
+    sys.exit(1)
+
+# определяем индекс дня
 today_utc = datetime.datetime.utcnow()
 today_local = today_utc + datetime.timedelta(hours=TZ_OFFSET_HOURS)
 day_index = (today_local.date() - datetime.date.fromisoformat(START_DATE)).days
 if day_index < 0:
     day_index = 0
+print(f"[INFO] local_date={today_local.date()} day_index={day_index}")
 
 def pick_msg(arr):
-    # если постов меньше, чем дней, крутим по кругу
     return arr[day_index % len(arr)]
 
+# единственный канал сейчас — @datingTBS → ключ "tbilisi"
 mapping = {
-    "@dating_batumi": "batumi",
-    "@dating_tbilisi": "tbilisi",
-    "@dating_georgia": "georgia"
+    "@datingTBS": "tbilisi"
 }
 
-def send(chat_id, text):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
-    }
-    r = requests.post(url, json=payload, timeout=20)
-    r.raise_for_status()
-    return r.json()
+errors = 0
+targets = [c.strip() for c in CHANNELS.split(",") if c.strip()]
+print("[DBG] Parsed CHANNELS:", targets)
 
-for chat in CHANNELS.split(","):
-    chat = chat.strip()
+if not targets:
+    print("[ERR] CHANNELS is empty")
+    sys.exit(1)
+
+for chat in targets:
     key = mapping.get(chat)
-    if not key or key not in data:
+    if not key:
+        print(f"[WARN] No mapping for {chat}. Known:", list(mapping.keys()))
+        errors += 1
         continue
-    msg = pick_msg(data[key])
-    # добавим хештеги и призыв к действию
-    footer = "\n\n#dating #Georgia #Batumi #Tbilisi #свидания #знакомства"
+    if key not in data or not data[key]:
+        print(f"[WARN] posts.json has no content for key '{key}'")
+        errors += 1
+        continue
+
+    text = pick_msg(data[key]) + "\n\n#dating #Georgia #Tbilisi #свидания #знакомства"
+
+    print(f"[INFO] Sending to {chat} using key '{key}'")
     try:
-        res = send(chat, msg + footer)
-        print("Posted to", chat, "message_id:", res.get("result", {}).get("message_id"))
+        tg("sendMessage", {
+            "chat_id": chat,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True
+        })
+    except SystemExit:
+        errors += 1
     except Exception as e:
-        print("ERROR posting to", chat, "->", e)
+        print("[ERR] Exception while sending:", repr(e))
+        errors += 1
+
+if errors:
+    print(f"[FAIL] Completed with {errors} error(s).")
+    sys.exit(1)
+
+print("[DONE] All messages sent successfully.")
