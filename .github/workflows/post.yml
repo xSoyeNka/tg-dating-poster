@@ -12,12 +12,29 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Upgrade pip and show env
+        run: |
+          python -V
+          pip -V
+          pip install --upgrade pip
+          python - << 'PY'
+import os
+print("ENV_CHANNELS_present=", bool(os.environ.get("CHANNELS")))
+print("ENV_START_DATE=", os.environ.get("START_DATE"))
+PY
+
+      - name: List repo files
+        run: ls -la
+
       - name: Install deps
         run: pip install -r requirements.txt
+
       - name: Run poster
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
