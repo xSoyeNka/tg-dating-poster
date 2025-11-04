@@ -1,0 +1,27 @@
+name: Daily Telegram Posts
+
+on:
+  schedule:
+    # 08:00 Asia/Tbilisi (UTC+4) = 04:00 UTC
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Run poster
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNELS: ${{ secrets.CHANNELS }}
+          START_DATE: ${{ secrets.START_DATE }}
+          TZ_OFFSET_HOURS: "4"
+        run: python post.py
