@@ -19,26 +19,34 @@ jobs:
           python-version: "3.11"
 
       - name: Upgrade pip and show env
+        shell: bash
         run: |
+          set -e
           python -V
           pip -V
           pip install --upgrade pip
-          python - << 'PY'
+          python - <<'PY'
 import os
-print("ENV_CHANNELS_present=", bool(os.environ.get("CHANNELS")))
-print("ENV_START_DATE=", os.environ.get("START_DATE"))
+print("ENV_CHANNELS_present =", bool(os.environ.get("CHANNELS")))
+print("ENV_START_DATE =", os.environ.get("START_DATE"))
 PY
 
       - name: List repo files
-        run: ls -la
+        shell: bash
+        run: |
+          ls -la
 
       - name: Install deps
-        run: pip install -r requirements.txt
+        shell: bash
+        run: |
+          pip install -r requirements.txt
 
       - name: Run poster
+        shell: bash
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNELS: ${{ secrets.CHANNELS }}
           START_DATE: ${{ secrets.START_DATE }}
           TZ_OFFSET_HOURS: "4"
-        run: python post.py
+        run: |
+          python post.py
