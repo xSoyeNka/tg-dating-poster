@@ -18,18 +18,23 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Upgrade pip and show env
+      - name: Upgrade pip
         shell: bash
         run: |
           set -e
           python -V
           pip -V
           pip install --upgrade pip
-          python - <<'PY'
-import os
-print("ENV_CHANNELS_present =", bool(os.environ.get("CHANNELS")))
-print("ENV_START_DATE =", os.environ.get("START_DATE"))
-PY
+
+      # Покажем, что секреты подхватились, без Python-хередока
+      - name: Show env presence
+        shell: bash
+        env:
+          CHANNELS: ${{ secrets.CHANNELS }}
+          START_DATE: ${{ secrets.START_DATE }}
+        run: |
+          if [ -n "$CHANNELS" ]; then echo "ENV_CHANNELS_present=true"; else echo "ENV_CHANNELS_present=false"; fi
+          echo "ENV_START_DATE=$START_DATE"
 
       - name: List repo files
         shell: bash
@@ -40,6 +45,20 @@ PY
         shell: bash
         run: |
           pip install -r requirements.txt
+
+      # (Опционально) дымовой тест отправки — можно закомментировать
+      - name: Smoke sendMessage (optional)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          set -e
+          curl -sS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -H 'Content-Type: application/json' \
+            -d '{"chat_id":"@datingTBS","text":"Чем занимаетесь?)","parse_mode":"HTML","disable_web_page_preview":true}' | tee resp.json
+          echo "---"
+          cat resp.json
 
       - name: Run poster
         shell: bash
